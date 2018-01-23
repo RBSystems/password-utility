@@ -5,7 +5,7 @@ import (
 	"log"
 	"os"
 
-	"github.com/byuoitav/raspi-deployment-microservice/passwords"
+	"github.com/byuoitav/password-utility/passwords"
 	"github.com/fatih/color"
 )
 

@@ -1,6 +1,7 @@
 package passwords
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
@@ -12,7 +13,7 @@ import (
 	"os"
 
 	"github.com/byuoitav/authmiddleware/bearertoken"
-	"github.com/byuoitav/pi-credentials-microservice/structs"
+	"github.com/byuoitav/password-utility/structs"
 	"github.com/fatih/color"
 )
 
@@ -61,10 +62,19 @@ func GetPassword(hostname string) (string, error) {
 	//get the dang value
 	var entry structs.Entry
 	err = json.Unmarshal(body, &entry)
-	if err != nil {
-		msg := fmt.Sprintf("unable to read response body: %s", err.Error())
-		log.Printf("%s", color.HiRedString("[passwords] %s", msg))
+	if err != nil { //if unmarshalling a struct fails, try to unmarshal a string
+
+		var errResp string
+		err = json.Unmarshal(body, &errResp)
+		if err != nil {
+
+			log.Printf("%s", color.HiRedString("[passwords] %s", err.Error()))
+			return "", err
+		}
+
+		msg := fmt.Sprintf("password not found: %s", errResp)
 		return "", errors.New(msg)
+
 	}
 
 	return entry.Password, nil
@@ -72,37 +82,32 @@ func GetPassword(hostname string) (string, error) {
 
 func SetPassword(entry *structs.Entry) error {
 
-	//build client
-	var client http.Client
-
-	//build request
-	url := fmt.Sprintf("%s/devices/%s", os.Getenv("RASPI_CRED_MICROSERVICE_ADDRESS"), hostname)
-	req, err := http.NewRequest("POST", url, nil)
-	if err != nil {
-		msg := fmt.Sprintf("unable to build request: %s", err.Error())
-		log.Printf("%s", color.HiRedString("[passwords] %s", msg))
-		return "", errors.New(msg)
-	}
-
 	//marshal struct
 	body, err := json.Marshal(entry)
 	if err != nil {
 		msg := fmt.Sprintf("unable to marshal entry struct: %s", err.Error())
 		log.Printf("%s", color.HiRedString("[passwords] %s", msg))
-		return "", errors.New(msg)
+		return errors.New(msg)
 	}
 
-	_, err = req.Body.Read(body)
+	//build client
+	var client http.Client
+
+	//build request
+	url := fmt.Sprintf("%s/devices/%s", os.Getenv("RASPI_CRED_MICROSERVICE_ADDRESS"), entry.Hostname)
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(body))
 	if err != nil {
-		msg := fmt.Sprintf("unable to : %s", err.Error())
+		msg := fmt.Sprintf("unable to build request: %s", err.Error())
 		log.Printf("%s", color.HiRedString("[passwords] %s", msg))
-		return "", errors.New(msg)
+		return errors.New(msg)
 	}
+
+	req.Header.Set("Content-Type", "Application/JSON")
 
 	//set bearer token
 	err = SetToken(req)
 	if err != nil {
-		return "", err
+		return err
 	}
 
 	//DO IT
@@ -110,28 +115,59 @@ func SetPassword(entry *structs.Entry) error {
 	if err != nil {
 		msg := fmt.Sprintf("unable to complete request: %s", err.Error())
 		log.Printf("%s", color.HiRedString("[passwords] %s", msg))
-		return "", errors.New(msg)
+		return errors.New(msg)
 	}
 
-	//read response body
+	//read response code
 	defer resp.Body.Close()
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		msg := fmt.Sprintf("unable to read response body: %s", err.Error())
+
+	if resp.StatusCode != 200 {
+		msg := fmt.Sprintf("non-200 response: %d", resp.StatusCode)
 		log.Printf("%s", color.HiRedString("[passwords] %s", msg))
-		return "", errors.New(msg)
+		return errors.New(msg)
 	}
 
-	//get the dang value
-	var entry structs.Entry
-	err = json.Unmarshal(body, &entry)
+	return nil
+}
+
+func DeletePassword(hostname string) error {
+
+	//build client
+	var client http.Client
+
+	//build request
+	url := fmt.Sprintf("%s/devices/%s", os.Getenv("RASPI_CRED_MICROSERVICE_ADDRESS"), hostname)
+	req, err := http.NewRequest("DELETE", url, nil)
 	if err != nil {
-		msg := fmt.Sprintf("unable to read response body: %s", err.Error())
+		msg := fmt.Sprintf("unable to build request: %s", err.Error())
 		log.Printf("%s", color.HiRedString("[passwords] %s", msg))
-		return "", errors.New(msg)
+		return errors.New(msg)
 	}
 
-	return entry.Password, nil
+	//set bearer token
+	err = SetToken(req)
+	if err != nil {
+		return err
+	}
+
+	//DO IT
+	resp, err := client.Do(req)
+	if err != nil {
+		msg := fmt.Sprintf("unable to complete request: %s", err.Error())
+		log.Printf("%s", color.HiRedString("[passwords] %s", msg))
+		return errors.New(msg)
+	}
+
+	//read response code
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		msg := fmt.Sprintf("non-200 response: %d", resp.StatusCode)
+		log.Printf("%s", color.HiRedString("[passwords] %s", msg))
+		return errors.New(msg)
+	}
+
+	return nil
 }
 
 func GenerateRandomPassword() (string, error) {
@@ -150,7 +186,7 @@ func SetToken(request *http.Request) error {
 
 	if len(os.Getenv("LOCAL_ENVIRONMENT")) == 0 {
 
-		log.Printf("[helpers] setting bearer token...")
+		log.Printf("[passwords] setting bearer token...")
 
 		token, err := bearertoken.GetToken()
 		if err != nil {

@@ -16,8 +16,7 @@ func main() {
 
 	result, err := passwords.GetPassword(args[0])
 	if err != nil {
-		msg := fmt.Sprintf("passord not found: %s", err.Error())
-		log.Printf("%s", color.HiRedString("[password-utility] %s", msg))
+		log.Printf("%s", color.HiRedString("[main] %s", err.Error()))
 	}
 
 	fmt.Printf(result)
